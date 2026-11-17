@@ -15,3 +15,18 @@
 .projection-tag{position:absolute;left:17px;bottom:29px;border-radius:8px;background:#ffffffdb;padding:7px 10px;font-size:10px;font-weight:750;color:#527a7e;z-index:450}
 #mapLoading{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);text-align:center;background:#ffffffed;padding:15px;border-radius:12px;font-size:13px;color:#46676c;max-width:78%;box-shadow:0 3px 15px #173b481c;pointer-events:none}
 @media(max-width:760px){.map-controls{right:8px;bottom:10px}.map-controls button{padding:8px 10px}.projection-tag{left:8px;bottom:12px;font-size:9px}.maphelp{max-width:93%;white-space:normal;text-align:center}}
+
+/* Equal Earth: 상세 국경/행정 경계, 확대 단계별 한국어 지명 */
+.admin-borders{fill:none;stroke:#779d8c;stroke-width:.45;stroke-linecap:round;stroke-linejoin:round;pointer-events:none;vector-effect:non-scaling-stroke;opacity:.9}
+.earth-borders{stroke:#567f78;stroke-width:.65;vector-effect:non-scaling-stroke}
+.earth-land{fill:#dce7c7;stroke:#aabf9e;stroke-width:.5}
+.earth-ocean{fill:#a9d9f1}
+.earth-grid{stroke:#7cafcf;opacity:.55;vector-effect:non-scaling-stroke}
+.earth-outline{vector-effect:non-scaling-stroke}
+.label-layer,.label-layer *{pointer-events:none;user-select:none}
+.place text{font:600 11px system-ui,'Malgun Gothic',sans-serif;fill:#344c4c;stroke:#f4f8f0;stroke-width:2.6px;paint-order:stroke;stroke-linejoin:round}
+.place-country text{font-weight:800;fill:#7f5a2b;letter-spacing:.15px;font-size:12px}
+.place-capital text{font-weight:750;fill:#283d4f}
+.place-sea text{font-weight:600;fill:#468ab5;font-size:12px;letter-spacing:1px}
+.place-sea circle,.place-country circle,.place-region circle{display:none}
+.place-dot{fill:#263f45;stroke:white;stroke-width:1}
