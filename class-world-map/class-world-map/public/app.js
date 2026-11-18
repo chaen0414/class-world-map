@@ -28,7 +28,7 @@ function renderMarkers() {
    .on('click', (event, d) => { event.stopPropagation();openEditor(d); })
    .on('keydown', (event,d) => { if(event.key==='Enter'||event.key===' '){ event.preventDefault();openEditor(d); } });
 }
-// 지도 해상도: 전체 110m -> 확대 50m -> 더 확대 10m.
+// 지도 해상도: 전체 110m -> 확대 50m -> 깊이 확대 10m (줌 종료 후에만 변경).
 // Natural Earth 경계 및 지명은 브라우저에서 필요할 때 불러온다.
 const MAP_SOURCES = {
   110: 'https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json',
@@ -76,14 +76,23 @@ function updateLabels() {
       if(desired.length>1800)break;
     }
   }
-  const placed=[];
-  const visible=desired.filter(d=>{
+  // 화면 격자 기반 충돌 검사를 사용해 지명 수가 증가해도 선형에 가깝게 처리한다.
+  const cellSize = 48;
+  const grid = new Map();
+  const visible = desired.filter(d=>{
     const xy=projection([d.lng,d.lat]);if(!xy)return false;
     const x=xy[0]*k+transform.x,y=xy[1]*k+transform.y;
     if(x<0||x>screenW||y<0||y>screenH)return false;
     const width=(d.name.length*9+16),height=17;
-    if(placed.some(p=>Math.abs(p.x-x)<(p.width+width)*.48+5&&Math.abs(p.y-y)<17))return false;
-    placed.push({x,y,width,height});return true;
+    const gx=Math.floor(x/cellSize),gy=Math.floor(y/cellSize);
+    for(let ix=gx-2;ix<=gx+2;ix++)for(let iy=gy-1;iy<=gy+1;iy++){
+      const bucket=grid.get(`${ix},${iy}`)||[];
+      if(bucket.some(p=>Math.abs(p.x-x)<(p.width+width)*.48+5 && Math.abs(p.y-y)<17))return false;
+    }
+    const key=`${gx},${gy}`;
+    if(!grid.has(key))grid.set(key,[]);
+    grid.get(key).push({x,y,width});
+    return true;
   });
   labelsLayer.selectAll('g.place').data(visible,d=>d.name).join(
     enter=>{const g=enter.append('g').attr('class','place');g.append('circle').attr('r',2.2).attr('class','place-dot');g.append('text').attr('dy','-6').attr('text-anchor','middle');return g;},
@@ -91,12 +100,46 @@ function updateLabels() {
   ).attr('class',d=>`place place-${d.type}`).attr('transform',d=>{const p=projection([d.lng,d.lat]);return `translate(${p[0]},${p[1]}) scale(${1/k})`;})
   .each(function(d){d3.select(this).select('text').text(d.name);});
 }
+// 행정구역 경로는 지도 투영/화면 크기가 달라졌을 때만 재생성한다.
+// 확대 프레임마다 수많은 SVG 경계선을 다시 만드는 작업을 없앤다.
+function updateDetailGeometry() {
+  if (!mapReady) return;
+  const path=detailLayer.selectAll('path.admin-borders').data(detailBorders ? [detailBorders] : []);
+  path.join('path').attr('class','admin-borders').attr('d',geoPath);
+  applyDetailVisibility();
+}
+function applyDetailVisibility() {
+  const k=d3.zoomTransform(svg.node()).k || 1;
+  detailLayer.style('display',k>=2.25?'':'none');
+}
 function renderDetail() {
   if(!mapReady)return;
-  const k=d3.zoomTransform(svg.node()).k || 1;
-  detailLayer.selectAll('*').remove();
-  if(k>=2.25 && detailBorders)detailLayer.append('path').datum(detailBorders).attr('d',geoPath).attr('class','admin-borders');
+  updateDetailGeometry();
   updateLabels();
+}
+// 팬/휠 이동 중에는 SVG 그룹 transform만 바꾸고 상세 지도 계산을 생략한다.
+let framePending=false;
+let settleTimer=null;
+function fastZoomFrame(){
+  framePending=false;
+  if(!mapReady)return;
+  renderMarkers();
+  applyDetailVisibility();
+}
+function scheduleZoomFrame(){
+  if(framePending)return;
+  framePending=true;
+  requestAnimationFrame(fastZoomFrame);
+}
+function settleZoom(){
+  if(!mapReady)return;
+  zoomFactor=d3.zoomTransform(svg.node()).k;
+  updateLabels();
+  applyDetailVisibility();
+  const target=zoomFactor>=7?10:zoomFactor>=2.25?50:110;
+  if(target!==activeResolution)changeResolution(target);
+  if(zoomFactor>=2.25)loadAdministrativeBorders();
+  if(zoomFactor>=4.5)loadPopulatedPlaces();
 }
 function drawBase(world) {
   const land=topojson.feature(world,world.objects.land);
@@ -121,7 +164,7 @@ async function loadWorld(resolution){
 }
 async function changeResolution(resolution){
   if(activeResolution===resolution)return;
-  try{const world=await loadWorld(resolution);if((zoomFactor>=5?10:zoomFactor>=2?50:110)!==resolution)return;
+  try{const world=await loadWorld(resolution);if((zoomFactor>=7?10:zoomFactor>=2.25?50:110)!==resolution)return;
     activeResolution=resolution;worldData=world;drawBase(world);
   }catch(e){console.warn('상세 지도가 없어 현재 지도를 유지합니다.',e);}
 }
@@ -131,7 +174,7 @@ async function loadPopulatedPlaces(){
   try{
     const url='https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_10m_populated_places.geojson';
     const r=await fetch(url);if(!r.ok)throw Error('지명 정보 응답 오류');
-    populatedPlaces=await r.json();updateLabels();
+    populatedPlaces=await r.json();if(mapReady)updateLabels();
   }catch(e){console.warn('일부 상세 지명을 불러오지 못했습니다.',e);}
 }
 async function loadAdministrativeBorders(){
@@ -141,7 +184,7 @@ async function loadAdministrativeBorders(){
     // Natural Earth 50m 행정 1단계(주/도/성) 경계. 지나치게 큰 파일은 최초 확대 때만 요청.
     const url='https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_50m_admin_1_states_provinces_lines.geojson';
     const r=await fetch(url);if(!r.ok)throw new Error('행정구역 경계 자료 없음');
-    const geo=await r.json();detailBorders=geo;renderDetail();
+    const geo=await r.json();detailBorders=geo;updateDetailGeometry();
   }catch(e){console.warn('행정구역 경계는 연결 상태에 따라 생략됩니다.',e);}
 }
 let worldData;
@@ -151,12 +194,14 @@ async function initMap(){
     $('mapLoading').classList.add('hidden');
     const zoom=d3.zoom().scaleExtent([1,20]).filter(event=>!event.button && (event.type!=='wheel'||!event.ctrlKey))
       .on('zoom',event=>{
-        zoomFactor=event.transform.k;mapRoot.attr('transform',event.transform);
-        renderMarkers();renderDetail();
-        const target=zoomFactor>=5?10:zoomFactor>=2?50:110;
-        if(target!==activeResolution)changeResolution(target);
-        if(zoomFactor>=2.25)loadAdministrativeBorders();
-        if(zoomFactor>=4.5)loadPopulatedPlaces();
+        zoomFactor=event.transform.k;
+        mapRoot.attr('transform',event.transform);
+        scheduleZoomFrame();
+        clearTimeout(settleTimer);
+        settleTimer=setTimeout(settleZoom,180);
+      }).on('end',()=>{
+        clearTimeout(settleTimer);
+        settleZoom();
       });
     mapZoom=zoom;svg.call(zoom).on('dblclick.zoom',null);
     svg.on('click.pin',event=>{
